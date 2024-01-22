@@ -129,7 +129,7 @@ func generateBlock(oldBlock Block, Data int) (Block, error) {
 	newBlock.Data = Data
 	newBlock.PrevHash = oldBlock.Hash
 	newBlock.Difficulty = difficulty
-	newBlock.Nonce = "TODO" // You need to implement a mechanism to calculate the nonce.
+	newBlock.Nonce = "TODO" 
 
 	newBlock.Hash = calculateHash(newBlock)
 
@@ -137,7 +137,7 @@ func generateBlock(oldBlock Block, Data int) (Block, error) {
 }
 
 func calculateHash(block Block) string {
-	record := string(block.Index) + block.Timestamp + string(block.Data) + block.PrevHash + block.Nonce
+	record := string(rune(block.Index)) + block.Timestamp + string(rune(block.Data)) + block.PrevHash + block.Nonce
 	h := sha256.New()
 	h.Write([]byte(record))
 	hashed := h.Sum(nil)
@@ -145,7 +145,7 @@ func calculateHash(block Block) string {
 }
 
 func isHashValid(hash string, difficulty int) bool {
-	prefix := "0000" // You can adjust the difficulty by changing the number of leading zeros.
+	prefix := "0000" 
 	return hash[:difficulty] == prefix
 }
 
