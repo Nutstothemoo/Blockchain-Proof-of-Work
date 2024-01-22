@@ -1,20 +1,27 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"log"
 	"net/http"
-	"spew"
+	"sync"
+	"time"
 
+	"github.com/gorilla/mux"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/joho/godotenv"
 )
+
 type Block struct {
-	index int
-	Timestamp string
-	Data int 
-	Hash string
-	PrevHash string
-	Diffficulty int
-	Nonce string
+	Index        int
+	Timestamp    string
+	Data         int
+	Hash         string
+	PrevHash     string
+	Difficulty   int
+	Nonce        string
 }
 
 const difficulty = 1
@@ -22,49 +29,134 @@ const difficulty = 1
 var Blockchain []Block
 var mutex sync.Mutex
 
-func main(){
-	err:= godotenv.Load()
-	if err!= nil {
+func main() {
+	err := godotenv.Load()
+	if err != nil {
 		log.Fatal(err)
 	}
+
 	go func() {
-		t:= time.now()
-		genesisBlock:= Block{0, t.String(), 0, calculateHash(genesisBlock), "", difficulty, ""}
+		t := time.Now()
+		genesisBlock := Block{0, t.String(), 0, calculateHash(Block{}), "", difficulty, ""}
 		spew.Dump(genesisBlock)
 		mutex.Lock()
-	}	()
-	log.Fatal(run())	
+		Blockchain = append(Blockchain, genesisBlock)
+		mutex.Unlock()
+	}()
+
+	log.Fatal(run())
 }
 
 func run() error {
+	mux := makeMuxRouter()
+	httpAddr := "8080"
+	log.Println("Listening on ", httpAddr)
+	s := &http.Server{
+		Addr:           ":" + httpAddr,
+		Handler:        mux,
+		ReadTimeout:    10 * time.Second,
+		WriteTimeout:   10 * time.Second,
+		MaxHeaderBytes: 1 << 20,
+	}
+	if err := s.ListenAndServe(); err != nil {
+		return err
+	}
 
+	return nil
 }
 
 func makeMuxRouter() http.Handler {
-	HandleFunc("/", handleGetBlockchain).Methods("GET")
-	HandleFunc("/", handleWriteBlock).Methods("POST")
+	muxRouter := mux.NewRouter()
+	muxRouter.HandleFunc("/", handleGetBlockchain).Methods("GET")
+	muxRouter.HandleFunc("/", handleWriteBlock).Methods("POST")
+	return muxRouter
 }
 
 func handleGetBlockchain(w http.ResponseWriter, r *http.Request) {
-
+	mutex.Lock()
+	defer mutex.Unlock()
+	
+	bytes, err := json.MarshalIndent(Blockchain, "", "  ")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(bytes)
 }
 
 func handleWriteBlock(w http.ResponseWriter, r *http.Request) {
+	var newBlock Block
+	decoder := json.NewDecoder(r.Body)
+	if err := decoder.Decode(&newBlock); err != nil {
+		respondWithJSON(w, r, http.StatusBadRequest, r.Body)
+		return
+	}
+	defer r.Body.Close()
 
+	mutex.Lock()
+	defer mutex.Unlock()
+
+	if blockIsValid(newBlock, Blockchain[len(Blockchain)-1]) {
+		Blockchain = append(Blockchain, newBlock)
+		respondWithJSON(w, r, http.StatusCreated, newBlock)
+	} else {
+		respondWithJSON(w, r, http.StatusConflict, newBlock)
+	}
 }
+
 func blockIsValid(newBlock, oldBlock Block) bool {
+	if oldBlock.Index+1 != newBlock.Index {
+		return false
+	}
 
-}
-func generateBlock(oldBlock Block, BPM int) (Block, error) {
+	if oldBlock.Hash != newBlock.PrevHash {
+		return false
+	}
 
+	if calculateHash(newBlock) != newBlock.Hash {
+		return false
+	}
+
+	return true
 }
+
+func generateBlock(oldBlock Block, Data int) (Block, error) {
+	var newBlock Block
+
+	newBlock.Index = oldBlock.Index + 1
+	newBlock.Timestamp = time.Now().String()
+	newBlock.Data = Data
+	newBlock.PrevHash = oldBlock.Hash
+	newBlock.Difficulty = difficulty
+	newBlock.Nonce = "TODO" // You need to implement a mechanism to calculate the nonce.
+
+	newBlock.Hash = calculateHash(newBlock)
+
+	return newBlock, nil
+}
+
 func calculateHash(block Block) string {
-
+	record := string(block.Index) + block.Timestamp + string(block.Data) + block.PrevHash + block.Nonce
+	h := sha256.New()
+	h.Write([]byte(record))
+	hashed := h.Sum(nil)
+	return hex.EncodeToString(hashed)
 }
 
 func isHashValid(hash string, difficulty int) bool {
-
+	prefix := "0000" // You can adjust the difficulty by changing the number of leading zeros.
+	return hash[:difficulty] == prefix
 }
-func responseWithJSON(w http.ResponseWriter, json []byte, code int) {
 
+func respondWithJSON(w http.ResponseWriter, r *http.Request, code int, payload interface{}) {
+	response, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("HTTP 500: Internal Server Error"))
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	w.Write(response)
 }
