@@ -33,6 +33,8 @@ const difficulty = 1
 
 var Blockchain []Block
 var mutex sync.Mutex
+var privateKey *rsa.PrivateKey
+
 
 func main() {
 	err := godotenv.Load()
@@ -40,7 +42,7 @@ func main() {
 			log.Fatal(err)
 	}
 
-	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	privateKey, err = rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 			log.Fatal(err)
 	}
@@ -117,9 +119,10 @@ func handleWriteBlock(w http.ResponseWriter, r *http.Request) {
 
 	mutex.Lock()
 	defer mutex.Unlock()
+	publicKey := &privateKey.PublicKey
 
-	valid, err := blockIsValid(newBlock, Blockchain[len(Blockchain)-1])
-	if err != nil {
+	valid, err := blockIsValid(newBlock, Blockchain[len(Blockchain)-1], publicKey)
+		if err != nil {
 			respondWithJSON(w, r, http.StatusInternalServerError, "Error validating the block: "+err.Error())
 			return
 	}
